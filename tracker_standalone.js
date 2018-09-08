@@ -61,13 +61,13 @@
 	        }
 			this.eSelector='a[href],input[type="submit"],button[type="submit"]';
 
-	        // if(this.hn=='localhost'){
+	        if(this.hn=='localhost'){
 	        	this.serverDomain='localhost';
-		        this.serverPort=':8888';
-	        // }else{
-		       // this.serverDomain='kokeilu2.com';
-		       //this.serverPort='';
-	        // }
+		        this.serverPort=':1337';
+	        }else{
+		       this.serverDomain='kokeilu2.com';
+		       this.serverPort='';
+	        }
 			this.md=2;
 			this.bust=true;
 			this.autotagging=true;			
