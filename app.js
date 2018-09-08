@@ -2,18 +2,24 @@ var http = require('http');
 var https = require('https');
 const fs = require('fs');
 var tls = require('tls');
-var mysql = require('mysql');
 // HTTPS port 443, http port 80. To be changed in production
-var port = (process.env.PORT || process.env.VCAP_APP_PORT || 8888);
+var port = 1337;
+var porthttps = 1337;
+// var porthttps = (process.env.PORT || process.env.VCAP_APP_PORT || 1337);
 var ipService = require('ip');
 const requestIp = require('request-ip');
 var url = require('url');
 var uniqid = require('uniqid');
+var debug=false;
 var cookieService= require("cookies");
-var debug=true;
 var skey = fs.readFileSync('lkey.pem');
 var scert = fs.readFileSync('lcert.pem');
 const util = require('util');
+const assert = require('assert');
+// const mUrl = "mongodb://client1:091djAjdshulo@localhost:27017/ttanalytics";
+const mUrl = 'mongodb://localhost:27017/ttaito';
+let MongoClient = require('mongodb').MongoClient;  
+let db1;
 
 var options = {
 	    key: skey,
@@ -23,464 +29,420 @@ var options = {
 	    agent: false
 };
 
-var pool = mysql.createPool({
-	  host     : '127.0.0.1',
-	  port	   : '3306',
-	  user     : 'analytics',
-	  password : 'paloauto11',
-	  database : 'tt_analytics',
-	  debug    :  true
-});
+//Connection URL
 
-var executeSql = function(sqls,data,callback) {
-	// console.log(sql+' '+data);
-	if(sqls && data){
-		if(debug){
-			console.log(sqls+' '+util.inspect(data));
+//Create the db connection
+MongoClient.connect(mUrl, {  
+	  poolSize: 35
+	  // useNewUrlParser: true
+	},function(err, db) {
+	    if(err){console.log(err);
+		}else{
+			db1=db;
 		}
-	    pool.getConnection(function(err, connection) {
-		    if(connection){
-		    	connection.query({
-		    	    sql: sqls,
-		    	    timeout: 40000
-		    	  },
-		    	  data,
-		    	  function (error, results, fields) {
-		    		  
-		    		  if (error) {
-					        if(debug){
-					    		console.log(error); 
-					        }
-					        return connection.rollback(function() {
-					          throw error;
-					        });
-					  }
+	}
+);
 
-		    		  connection.release();
-		    		  
-		    		  if(callback){
-					    	callback(results);
-					  }
 
-		    	  }
-		    	);
-		    }else{
-		    	if(err){
-			    	console.log(err);
-		    	}else{
-			    	console.log('No connection');
-		    	}
-		    }
-	    });
-	 }
-};
-
-/*var getClientIp = function(req) {
-    return (req.headers["X-Forwarded-For"] ||
-            req.headers["x-forwarded-for"] ||
-            '').split(',')[0] ||
-           req.client.remoteAddress;
-};
-*/
 function isNumber(n) {
 	return !isNaN(parseFloat(n)) && isFinite(n);
 }
 
+
+
+var server = https.createServer(options,function(req, res) {
+
+			  var url_parts = url.parse(req.url, true);
+			  var pathName=url_parts.pathname;
+			  try{
+				   if(debug){
+					   console.log(pathName);
+				   }
+				   var query=url_parts.query;
+				   var s=query.s;
+				   var ttid=null;
+				   
+				   if(query.t){
+						ttid=query.t;
+				   }
+				   
+				   if(debug){
+					console.log('tid: '+ttid);
+					console.log(s);
+				   }
+				   /*
+				   if (req.url === '/favicon.ico') {
+						res.writeHead(200, {'Content-Type': 'image/x-icon'} );
+						res.end();
+						console.log('favicon requested');
+						return;
+				   }*/
+
+					if(req.method==='GET') {
+						  if(pathName==="/tt/"){
+								if(s==='c' || s==='c2'){
+									if(debug){
+										console.log('c requested');
+									}
+									if(typeof pCall==='function'){
+										var hitd=pCall(ttid,url_parts,query,pathName,req,res);
+										
+										if(typeof hitd.website_identity_token!=='undefined'
+										&& typeof hitd.client_ip!=='undefined'
+										&& typeof hitd.unique_id_client!=='undefined'
+										&& typeof db1!=='undefined'){
+												// https://docs.mongodb.com/manual/reference/operator/update/push/
+												/*
+												db.collection("instance").findOne({"session_data.session_id_client": instanceJson.session_data.session_id_client}, function(err, result) {
+													if (err) throw err;
+													if(result){
+														   db.collection("instance").updateOne(
+															   { "session_data.session_id_client": instanceJson.session_data.session_id_client },
+															   {
+																 "$push": {"hit_data": instanceJson.hit_data }
+															   }
+															)
+															if(debug){
+																console.log("1 document updated");
+															}
+													}else{
+														db.collection("instance").insertOne(instanceJson, function(err, res) {
+															if (err) throw err;
+															if(debug){
+																console.log("1 document inserted");
+															}
+														});
+													}
+												});*/
+												
+												  db1.collection("instance").findAndModify(
+												  {
+													  website_identity_token:hitd.website_identity_token,
+												      client_ip:hitd.client_ip,
+													  unique_id_client:hitd.unique_id_client,
+													  unique_email_id:hitd.unique_email_id,
+													  unique_phone_id:hitd.unique_phone_id,
+													  unique_loyalty_id:hitd.unique_loyalty_id,
+													  unique_profile_id:hitd.unique_profile_id
+												  }, // query
+												  [],  // sort order
+												  {$push: {hit_data: hitd.hit_data[0]}}, // replacement, replaces only the field "hi"
+												  {
+													  upsert: true,
+													  w:0
+												  }, 
+												  function(err, object) {
+													  if (err){
+														  console.warn(err.message);  // returns error if no matching object found
+													  }else{
+															// console.log('update result:  ' + object);
+													  }
+												});
+												
+										}
+										
+									}
+									if(s==='c'){
+										res.setHeader('Content-Type', 'image/gif');
+										res.statusCode = 200;
+									}else if(s==='c2'){
+										res.setHeader('Content-Type', 'text/javascript');
+										res.statusCode = 200;
+									}
+									res.end();
+									
+								}else{
+									res.statusCode = 200;
+									res.setHeader('Content-Type', 'text/plain');
+									res.end('Unparamitarized');
+								}
+						  }else{
+							  res.statusCode = 200;
+							  res.setHeader('Content-Type', 'text/plain');
+							  res.end('Unparamitarized');
+						  }
+							
+				  }
+				
+			  }catch(error){
+				  console.log(error);
+			  }
+});
+
+
 function pCall(ttid,url_parts,query,pathName,req,res){
-	  
+	try{
 	  if(ttid){
 		  	  var path=url_parts.pathname;
 			  var a;
 			  var a1;
 			  var a2;
 			  var a3;
-			  var amC=51;
-			  var a1mC=51;
-			  var a2mC=51;
-			  var a3mC=51;
+			  var amC=121;
+			  var a1mC=121;
+			  var a2mC=121;
+			  var a3mC=121;
 			  var tt_vid;
 			  var tt_uvid;
 			  var tt_time_c;
 			  var pageName;
 			  var pagePath="undefined";
-			  var pageTitle;
+			  var pageTitle="undefined";
 			  var pageId;
+			  var c_uvid;
+			  var c_vid;
+			  var timezone='na';
+			  var screenWidth='na';
+			  var screenHeight='na';
+			  var colorDepth='na';
+			  var navigatorLang='na';
+			  
 			  var header=JSON.stringify(req.headers);
 			  if(debug){
 				  console.log(header);
 			  }
-			  var referrer="not defined";
-			  var hst = req.headers.host;
+
+              if(typeof query.hn !== 'undefined'){
+				var hst = query.hn;
+				// var cleanHost=hst.substring(0, hst.indexOf(':'));
+				var cleanHost=hst.replace(/\:/g,'.')
+			  }
 			  
 			  if(debug){
 				  console.log(hst);
 			  }
 
+			  var referer="not defined";
 			  if(typeof req.headers.referer !== 'undefined'){
-				  referrer=req.headers.referer;
+				  referer=req.headers.referer;
 			  }
+			  var aRef='no r parameter';
+			  if(typeof query.r !== 'undefined'){
+				  	aRef = query.r; 
+		      }
 			  
 			  var cookies = new cookieService( req, res ), unsigned, signed, tampered;
 			  
-			  if(cookies.get('tt_vid')){
-				  tt_vid=cookies.get('tt_vid');
-			  }else{
-				  
-				  var date = new Date();
-			      date.setTime(date.getTime()+(1800*1000));
-			      tt_vid=uniqid();
-				  /*
-				  if(hst){
-					  cookies.set('tt_vid', tt_vid, {expires: date, domain: hst});
-				  }else{
-					  cookies.set('tt_vid', tt_vid, {expires: date});
-				  }*/
-				  cookies.set('tt_uvid', tt_uvid, {expires: date,domain: '.google.fi'});
-				  // cookies.set('tt_uvid', tt_uvid, {expires: date, domain: '.tulos.fi'});
-				  // cookies.set('tt_vid', tt_vid, {expires: date});
+			  if(debug){
+				  console.log('vid: '+cookies.get('tt_vid'));
 			  }
-			  
+
 			  if(typeof query.co === 'undefined'){
-			  
+				  
+				  /*
+				  if(cookies.get('tt_vid')){
+					  tt_vid=cookies.get('tt_vid');
+				  }else{
+					  
+					  var date = new Date();
+				      date.setTime(date.getTime()+(1800*1000));
+				      tt_vid=uniqid();
+					  
+					  if(cleanHost){
+						  cookies.set('tt_vid', tt_vid, {expires: date, domain: cleanHost});
+					  }else{
+						  cookies.set('tt_vid', tt_vid, {expires: date});
+					  }
+				  }
+				  
 				  if(cookies.get('tt_uvid')){
 					  tt_uvid=cookies.get('tt_uvid');
 				  }else{
 					  var date = new Date();
 				      date.setTime(date.getTime()+(63072000*1000));
 				      tt_uvid=uniqid();
-					  /*
-				      if(hst){
-				    	  cookies.set('tt_uvid', tt_uvid, {expires: date, domain: hst});
+				      if(cleanHost){
+				    	  cookies.set('tt_uvid', tt_uvid, {expires: date, domain: cleanHost});
 				      }else{
 				    	  cookies.set('tt_uvid', tt_uvid, {expires: date});
-				      }*/
-					  // cookies.set('tt_uvid', tt_uvid, {expires: date});
-					  cookies.set('tt_uvid', tt_uvid, {expires: date,domain: '.google.fi'});
-					  
+				      }
 				  }
 				  
 				  if(cookies.get('tt_time_c')!==null){
 					  tt_time_c=cookies.get('tt_time_c');
 				  } 
+				  */
+				  			  
+				  if(typeof query.i !=='undefined'){
+					  c_uvid=query.i;
+				  }
+				  
+				  if(typeof query.v !=='undefined'){
+					  c_vid=query.v;
+				  }
 
-			  }else{
-				  tt_uvid=1;
-				  tt_vid=1;
 			  }
-			  
-			  if(debug){console.log(tt_uvid);};
-			  if(debug){console.log(tt_vid);};
+
+			  // TODO: Block if too many requests
+			  var ip=requestIp.getClientIp(req); 
+
+			  if(debug){
+				  console.log('Ip before '+ip);
+			  }
 			  
 			  var ip=requestIp.getClientIp(req); 
 
-			  if(ipService.isV4Format(ip) && ip){
-				  ip=ipService.mask(ip);
-				  ip=ipService.toLong(ip);
-			  }
-			  
-			  if(!ip){
+			  if(!ip || typeof ip==='undefined'){
 				  ip=0;
+			  }else if(ipService.isV4Format(ip) && ip){
+				  ip=ipService.mask(ip,'255.255.255.0');
+				  
+			  }
+			  if(req.headers.hasOwnProperty("x-real-ip")){
+					  req.headers["x-real-ip"]=ipService.mask(req.headers["x-real-ip"],'255.255.255.0');
 			  }
 			  
-			  if(debug){
+			  if(debug && typeof ip !== 'undefined'){
 				  console.log('Ip '+ip);
 			  }
 			  
-			  if(debug){
-				  console.log(ip);
+			  if(query.p0){
+				  pageTitle=query.p0;
 			  }
 			  
-			  if(query.p2){
-				  pagePath=query.p2;
-			  }
-			  
-			  var hostname=req.headers.host;
-			  var lang=req.headers["accept-language"];
-			  			
-
 			  if(query.p1){
 				  pageName=query.p1;
 			  }
 			  
+			  if(query.z){
+				  timezone=query.z;
+			  }
+			  
+			  if(query.s1){
+				  screenWidth=query.s1;
+			  }
+			  
+			  if(query.s2){
+				  screenHeight=query.s2;
+			  }
+			  
+			  if(query.cd){
+				  colorDepth=query.cd;
+			  }
+			  
+			  if(query.il){
+				  navigatorLang=query.il;
+			  }
+
 /*			  if(query.p2){
 				  pageName=url_parts.p2;
 			  }*/
 			  
 			  if(debug){
 				  console.log(pageName);
-			  }
-
-			  if(query.a){
-				  a=query.a;
-				  if(debug){
-					  console.log(a);
-				  }
-				  if(query.a1){
-					  a1=query.a1;
-					  if(debug){
-						  console.log(a1);
-					  }
-						  if(query.a2){
-							  a2=query.a2;  
-								  if(debug){
-									  console.log(a2);
-								  }
-		 
-								  if(query.a3){
-									 a3=query.a3; 
-									 if(debug){
-										 console.log(a3);
-									 }
-								  }
-						  }
-				  }
+				  console.log('U vid: '+tt_uvid);
 			  }
 			  
-			  function saveVisit(ttid,accountId,tt_uvid,tt_vid,hst,a){
-				  
-		  		  try{
-		  			var visitorSelect=[tt_uvid];  
-		  			
-		  			var insertUniqueVisitor=function(results){
-		  				
-			  			var visitorId;
-		  				
-		  				if(debug){
-		  					console.log('Insert visitor results '+results);
-		  				}
-		  				
-		  				if(results.length>0){
-		  					visitorId=results[0].visitor_id;
-		  					if(debug){
-		  						console.log('Visitor id '+visitorId);
-		  					}
-		  				}else{
-		  					
-			  				var visitorData = {visitor_ipv4: ip,visitor_identity_hash: tt_uvid};
-			  				var iv=function(results){
-			  					if(debug){console.log(results.insertId);};
-			  					visitorId=results.insertId;
-			  				}
-			  				executeSql('INSERT INTO visitor SET ?',visitorData,iv);
-		  					
-		  				}
-		  				
-		  			  // Insert visit data
-						  var visitData = {visitor_hash_ref: tt_uvid,visit_identity_hash:tt_vid};
-						  var ivi=function(results){
-							  if(debug){	
-								  console.log(results);
-							  }
-							  
-								  // Insert hit data
-								  var hitd = {
-								    hit_id:null,
-									visitor_id_ref : visitorId,
-									website_identity_id_ref: accountId,
-									domain : hostname,
-									trust_level : 10,
-									referrer : referrer,
-									page_name : pageName,
-									page_path : pagePath,
-									received : null
-								 };
-								  
-								  if(debug){
-									  for(var attributename in hitd){
-										  if(debug){	
-										    console.log('h-data '+attributename+": "+hitd[attributename]);
-										  }
-									  }
-								  }
-								  
-								  var hitCallback=function(results){
-									  if(debug){
-										  console.log(results.insertId);
-									  }
-									  
-									  var hitData = {
-											 data_row_id:null,
-											 domain:hst,
-											 page_name : pageName,
-											 page_path : pagePath,
-											 website_identity_id_ref : accountId
-									  };
-									  
-									  executeSql('INSERT IGNORE INTO hit_data SET ? ',hitData,null);
-									  
-									  
-								  }
-								  
-								  if(hitd.visitor_id_ref && hitd.website_identity_id_ref){
-									  // executeSql('INSERT INTO hit(hit_id, visitor_id_ref, website_identity_id_ref, domain, trust_level, referrer, page_name, page_path) VALUES (?)', hitData,hitCallback);
-									  executeSql('INSERT INTO hit SET ? ',hitd,hitCallback);
-								  }
-							  
-						  }
-						  executeSql('INSERT IGNORE INTO visit SET ?',visitData,ivi);
-						  
-						  if(a){
-							  if(a.length < amC){
-								  var eventData=
-								  	 {
-								     event_id:null,
-								     visitor_id_ref:visitorId,
-								     category:a
-								     };
-									  if(a1){
-										  if(a1.length < a1mC){
-											  eventData.action=a1;
-												  if(a2){
-													  if(a2.length < a2mC){
-														  eventData.path=a2;
-													  }
-												  }
-												  if(a3){
-													  if(a3.length < a3mC){
-														  eventData.label=a3;
-													  }
-												  }
-												  if(tt_time_c){
-													  eventData.time_since_page_view_load=tt_time_c;
-												  }
-												  var ec=function(results){
-													  if(results){
-														  
-													  }
-												  }
-												  
-												  if(debug){console.log('insert into event '+eventData);}
-												  
-												  executeSql('INSERT INTO event SET ?',eventData,ec);
-												  
-										  }
-									  }
-							  
-						  }
-					  }else{
-						  if(debug){console.log('No a set')};
-					  }
-		  				
-		  			}
-		  			
-		  			executeSql('SELECT visitor_id FROM visitor WHERE visitor_identity_hash = ?',visitorSelect,insertUniqueVisitor);
-
-
-				  }catch(err) {
-				      console.log(err);
-				  }
-					  
-			  }
-			 
-			  if(tt_vid && tt_uvid && ttid && pageName){
-				  
-				  if(debug){	
-					  console.log(tt_vid+' '+tt_uvid+' '+ttid);
-				  }
-				  
-					  var accountData = [ttid];
-					  var cb=function(results){
+			if(typeof ttid !== 'undefined' 
+			&& typeof pageName !== 'undefined'  
+			&& typeof c_vid !== 'undefined' 
+			&& typeof ip !== 'undefined'){
+				var timestamp=Math.floor(new Date() / 1000);
+				    var userAgent='';
+					var acceptLang='';
+				    if(typeof req.headers['user-agent']!=='undefined'){
+					   	userAgent=req.headers['user-agent'];
+					}
+					if(typeof req.headers['accept-language']!=='undefined'){
+						acceptLang=req.headers['accept-language'];
+					}
+				
+					var hitd={		
+			  				    website_identity_token: ttid,
+								client_ip: ip,
+								unique_id_client: c_uvid,
+								unique_email_id:"",
+								unique_phone_id:"",
+								unique_loyalty_id:"",
+								unique_profile_id:"",
+			  				    hit_data: [
+									{
+										session_id_client:c_vid,
+										page_name: pageName,
+										page_title:pageTitle,
+										client_hn: cleanHost,
+										hit_timestamp: timestamp,
+										referer_h: referer,
+										referer_r: aRef,
+										user_agent:userAgent,
+										accept_lang:acceptLang,
+										timezone:timezone,
+										screen_width:screenWidth,
+										screen_height:screenHeight,
+										color_depth:colorDepth,
+										navigator_lang:navigatorLang,
+										event_category: "",
+										event_element_text: "",
+										event_target_url: "",
+										event_selector_data_raw: "",
+										event_htlm_parent1_id:"",
+										event_htlm_parent2_id:"",
+										event_htlm_parent1_class:"",
+										event_htlm_parent2_class:""
+									}
+			  				    ]
+			  		};
+	
+					  if(query.a){
+						  a=query.a;
+						  hitd.hit_data[0].event_category=a;
 						  if(debug){
-							  console.log('Results '+results);
+							  console.log(a);
+						  }
+						  if(query.a1){
+							  a1=query.a1;
+							  hitd.hit_data[0].event_element_text=a1;
+							  
+							  if(debug){
+								  console.log(a1);
+							  }
+								  if(query.a2){
+									  a2=query.a2; 
+									  hitd.hit_data[0].event_target_url=a2;
+										  if(debug){
+											  console.log(a2);
+										  }
+				 
+										  if(query.a3){
+											 a3=query.a3; 
+											 hitd.hit_data[0].event_selector_data_raw=a3;
+											 
+											 if(debug){
+												 console.log(a3);
+											 }
+										  }
+								  }
 						  }
 						  
-						  if(results[0]){
-							  var ctid=results[0].website_identity_token;
-							  var accountId=results[0].account_id;
-							  if(ctid===ttid){
-								  if(debug){	
-									  console.log('website_identity_token '+results[0].website_identity_token);
-								  }
-								  saveVisit(ttid,accountId,tt_uvid,tt_vid,hst,a);
-							  }
+						  if(query.d1){
+							  hitd.hit_data[0].event_htlm_parent1_id=query.d1;
 						  }
+						  
+						  if(query.d2){
+							  hitd.hit_data[0].event_htlm_parent2_id=query.d2;
+						  }
+						  
+						  if(query.d3){
+							  hitd.hit_data[0].event_htlm_parent1_class=query.d3;
+						  }
+						  
+						  if(query.d4){
+							  hitd.hit_data[0].event_htlm_parent2_class=query.d4;
+						  }
+						  
 					  }
-					  executeSql('SELECT account_id, website_identity_token FROM analytics_account WHERE website_identity_token = ? LIMIT 1',accountData,cb);
-			  }
-							  
+	
+					  return hitd;	
 
-			return tt_uvid;
-	  }
-
-}
-
-function serverCall(req, res){
-	  var url_parts = url.parse(req.url, true);
-	  var pathName=url_parts.pathname;
-	  try{
-		  
-	   if(debug){
-		   console.log(pathName);
-	   }
-	   var query=url_parts.query;
-	   var s=query.s;
-	   var ttid=null;
-	   
-	   if(query.t){
-			ttid=query.t;
-	   }
-	   
-	   if(debug){
-		// console.log(url_parts.query);
-	    console.log('tid: '+ttid);
-	    console.log(s);
-	   }
-	   
-	   if (req.url === '/favicon.ico') {
-		    res.writeHead(200, {'Content-Type': 'image/x-icon'} );
-		    res.end();
-		    console.log('favicon requested');
-		    return;
-	  }
-
-	   if(req.method==='GET') {
-	      if(pathName==="/tl/"){
-					if(s==='gl'){
-					  fs.readFile(__dirname+'/tracker_standalone.js', function(err, data) {
-						  res.statusCode = 200;
-						  res.setHeader('Content-Type', 'application/javascript');
-						  res.write(data);
-						  res.end();
-					  });
-					}
-		  }else if(pathName==="/tt/"){
-				if(s==='c'){
-					if(debug){
-						console.log('c requested');
-					}
-					pCall(ttid,url_parts,query,pathName,req,res);
-					res.statusCode = 200;
-					res.setHeader('Content-Type', 'image/jpg');
-					// res.json({p0: 0 })
-					// res.setHeader('Content-Type', 'text/plain');
-					res.end();
-					
-				}else if(s==='c2'){
-					var uvid=pCall(ttid,url_parts,query,pathName,req,res);
-					res.statusCode = 200;
-					res.setHeader('Content-Type', 'application/javascript');
-					res.write("var cookieName = \'tt_client_id\';var cookieValue = \'"+uvid+"\';var myDate = new Date();myDate.setMonth(myDate.getMonth() + 12);document.cookie = cookieName +\"=\" + cookieValue + \";expires=\" + myDate + \";path=\/\";");
-					res.end();
-				}else{
-					res.statusCode = 200;
-					res.setHeader('Content-Type', 'text/plain');
-					res.end('unparamitarized');
-				}
-	      }
+	          }
 			
-	   }
-	   
-	  }catch(error){
+	    }
+	}catch(error){
 		  console.log(error);
-	  }
+	}
 }
+server.listen(porthttps);
+server.timeout = 1500;
+console.log('Server running at https://127.0.0.1:'+porthttps);
 
 
-https.createServer(options, function (req, res) {
-	serverCall(req, res);     
-}).listen(port);
-console.log('Server running at https://127.0.0.1:'+port);
-/*http.createServer(options, function (req, res) {
-	serverCall(req, res); 
-}).listen(port);
-console.log('Server running at http://127.0.0.1:'+port);*/
