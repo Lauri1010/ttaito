@@ -13,7 +13,7 @@ Installation
 3. npm install, follow the npm instructions in node webpage
 4. Setup mongo db & connect or install xampp and use the mysql version. 
 
-KWNOWN ISSUES
+KNOWN ISSUES
 - Using mongodb version 2.2.33 as the latest mongodb version has a bug: https://stackoverflow.com/questions/47662220/db-collection-is-not-a-function-when-using-mongoclient-v3-0
 
 Development principles
