@@ -19,7 +19,7 @@ let docdbUtils = require('./models/cosmosdb-manager');
 
 function ttModel() {
 	this.host = process.env.HOST || "https://ttanalytics.documents.azure.com:443/";
-	this.authKey = process.env.AUTH_KEY || "4AN57BRIrDURzWM6f4aEidAnykKtlir30XxQM9cXrdSV1pnxipNA9vq7MsiegroLPXpJSV6Q9xNB9KAB5kYZeQ==";
+	this.authKey = process.env.AUTH_KEY || "";
 	this.databaseId = "ttanalytics";
 	this.collectionId = "instance";
 	this.client = new DocumentDBClient(this.host, {
